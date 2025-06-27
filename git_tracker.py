@@ -1,11 +1,17 @@
-import json
 import os
+import sys
+import json
 from pathlib import Path
 
 def update_repo_registry():
-	repo_path = os.getcwd()
+	if len(sys.argv) > 0:
+		repo_path = sys.argv[1]
+	else:
+		repo_path = os.getcwd()
+
+	print(f"Updating repository registry for: {repo_path}")
 	repo_name = Path(repo_path).name
-	json_file = "%USERPROFILE%/.git-tracker/gitrepos.json"
+	json_file = "gitrepos.json"
 	
 	try:
 		with open(json_file, 'r') as f:
