@@ -19,7 +19,7 @@ def update_repo_registry():
 	except FileNotFoundError:
 		repos = {}
 	
-	repos[repo_name] = repo_path
+	repos[repo_path] = repo_name
 	
 	with open(json_file, 'w') as f:
 		json.dump(repos, f, indent=2)

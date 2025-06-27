@@ -1,2 +1,6 @@
 #!/bin/sh
-python "%USERPROFILE%/.git-tracker/git_tracker.py"
+echo "POST-CHECKOUT: =============================================="
+REPO_PATH="$(pwd)"
+SCRIPT_DIR="$(dirname "$0")/.."
+echo "Running: cd $SCRIPT_DIR && python git_tracker.py $REPO_PATH"
+cd "$SCRIPT_DIR" && python git_tracker.py "$REPO_PATH"

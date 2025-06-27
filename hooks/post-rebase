@@ -1,4 +1,6 @@
 #!/bin/sh
-echo "POST-MERGE HOOK EJECUTADO: $(date)" >> git-hook.log
-echo "$(dirname "$0")/python git_tracker.py"
-python "%USERPROFILE%/.git-tracker/git_tracker.py"
+echo "POST-REBASE: =============================================="
+REPO_PATH="$(pwd)"
+SCRIPT_DIR="$(dirname "$0")/.."
+echo "Running: cd $SCRIPT_DIR && python git_tracker.py $REPO_PATH"
+cd "$SCRIPT_DIR" && python git_tracker.py "$REPO_PATH"

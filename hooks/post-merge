@@ -1,5 +1,5 @@
 #!/bin/sh
-python "POST-MERGE: =============================================="
+echo "POST-MERGE: =============================================="
 REPO_PATH="$(pwd)"
 SCRIPT_DIR="$(dirname "$0")/.."
 echo "Running: cd $SCRIPT_DIR && python git_tracker.py $REPO_PATH"
