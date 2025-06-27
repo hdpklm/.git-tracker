@@ -6,7 +6,14 @@ def find_repos(search_term=None):
 	json_file = "gitrepos.json"
 	
 	try:
-		with open(json_file, 'r') as f:
+		path = sys.argv[0]
+		path = os.path.dirname(os.path.abspath(path))
+		file_path = os.path.join(path, json_file)
+		if not os.path.exists(file_path):
+			print(f"No se encontró el archivo {file_path} en el directorio actual.")
+			return
+
+		with open(file_path, 'r') as f:
 			repos = json.load(f)
 	except FileNotFoundError:
 		print("No se encontró el archivo gitrepos.json")
