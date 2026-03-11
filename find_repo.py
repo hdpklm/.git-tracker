@@ -24,12 +24,11 @@ def build_hierarchical_tree(repos):
 	
 	return tree
 
-def print_hierarchical_tree(tree, prefix="", is_last=True, repo_id_ref=None):
-	"""Imprime el árbol jerárquico con IDs"""
-	if repo_id_ref is None:
-		repo_id_ref = [0]  # Usar lista para poder modificar desde funciones anidadas
-	
-	items = []
+def print_hierarchical_tree(tree, prefix="", is_last=True, id_map=None, current_id=None):
+	"""Imprime el árbol jerárquico con IDs consistentes"""
+	if id_map is None:
+		id_map = {}
+		current_id = [0]
 	
 	# Separar directorios y repositorios
 	dirs = {}
@@ -42,21 +41,29 @@ def print_hierarchical_tree(tree, prefix="", is_last=True, repo_id_ref=None):
 			if value['_dirs']:
 				dirs[key] = value['_dirs']
 	
-	# Imprimir directorios primero, luego repos
+	# Imprimir directorios primero
 	for dir_name in sorted(dirs.keys()):
 		is_last_item = (dir_name == sorted(dirs.keys())[-1] and not repos)
 		current_prefix = "└── " if is_last_item else "├── "
 		print(f"{prefix}{current_prefix}{dir_name}/")
 		
 		next_prefix = prefix + ("    " if is_last_item else "│   ")
-		print_hierarchical_tree(dirs[dir_name], next_prefix, is_last_item, repo_id_ref)
+		print_hierarchical_tree(dirs[dir_name], next_prefix, is_last_item, id_map, current_id)
 	
 	# Imprimir repositorios
 	for repo_name, repo_paths in sorted(repos):
 		is_last_repo = (repo_name == sorted([r[0] for r in repos])[-1])
 		repo_prefix = "└── " if is_last_repo else "├── "
-		print(f"{prefix}{repo_prefix}[{repo_id_ref[0]}] 📦 {repo_name}")
-		repo_id_ref[0] += 1
+		
+		# Aquí es donde asignamos el ID
+		current_id_val = current_id[0] if isinstance(current_id, list) else current_id
+		print(f"{prefix}{repo_prefix}[{current_id_val}] 📦 {repo_name}")
+		id_map[current_id_val] = repo_paths
+		
+		if isinstance(current_id, list):
+			current_id[0] += 1
+		else:
+			current_id += 1
 
 def generate_repos_list(repos):
 	"""Genera el archivo git-repos-list.json con IDs y estructura treeview"""

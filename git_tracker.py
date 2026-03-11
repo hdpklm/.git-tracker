@@ -40,12 +40,11 @@ def build_hierarchical_tree(repos):
 	
 	return tree
 
-def print_hierarchical_tree(tree, prefix="", is_last=True, repo_id_ref=None):
-	"""Imprime el árbol jerárquico con IDs"""
-	if repo_id_ref is None:
-		repo_id_ref = [0]  # Usar lista para poder modificar desde funciones anidadas
-	
-	items = []
+def print_hierarchical_tree(tree, prefix="", is_last=True, id_map=None, current_id=None):
+	"""Imprime el árbol jerárquico con IDs consistentes"""
+	if id_map is None:
+		id_map = {}
+		current_id = [0]
 	
 	# Separar directorios y repositorios
 	dirs = {}
@@ -58,21 +57,29 @@ def print_hierarchical_tree(tree, prefix="", is_last=True, repo_id_ref=None):
 			if value['_dirs']:
 				dirs[key] = value['_dirs']
 	
-	# Imprimir directorios primero, luego repos
+	# Imprimir directorios primero
 	for dir_name in sorted(dirs.keys()):
 		is_last_item = (dir_name == sorted(dirs.keys())[-1] and not repos)
 		current_prefix = "└── " if is_last_item else "├── "
 		print(f"{prefix}{current_prefix}{dir_name}/")
 		
 		next_prefix = prefix + ("    " if is_last_item else "│   ")
-		print_hierarchical_tree(dirs[dir_name], next_prefix, is_last_item, repo_id_ref)
+		print_hierarchical_tree(dirs[dir_name], next_prefix, is_last_item, id_map, current_id)
 	
 	# Imprimir repositorios
 	for repo_name, repo_paths in sorted(repos):
 		is_last_repo = (repo_name == sorted([r[0] for r in repos])[-1])
 		repo_prefix = "└── " if is_last_repo else "├── "
-		print(f"{prefix}{repo_prefix}[{repo_id_ref[0]}] 📦 {repo_name}")
-		repo_id_ref[0] += 1
+		
+		# Aquí es donde asignamos el ID
+		current_id_val = current_id[0] if isinstance(current_id, list) else current_id
+		print(f"{prefix}{repo_prefix}[{current_id_val}] 📦 {repo_name}")
+		id_map[current_id_val] = repo_paths
+		
+		if isinstance(current_id, list):
+			current_id[0] += 1
+		else:
+			current_id += 1
 
 def generate_repos_list(repos):
 	"""Genera el archivo git-repos-list.json con IDs y estructura treeview"""
@@ -302,46 +309,76 @@ def update_repos():
 		generate_repos_list(existing_repos)
 		print(f"\n✓ {len(existing_repos)} repositorio(s) guardado(s)")
 
+def get_id_to_path_mapping(repos):
+	"""Crea un mapa consistente de ID -> ruta basado en el árbol jerárquico"""
+	tree = build_hierarchical_tree(repos)
+	id_map = {}
+	repo_id = [0]  # Usar lista para poder modificar en función anidada
+	
+	def traverse_tree(subtree):
+		dirs = {}
+		repos_list = []
+		
+		for key, value in subtree.items():
+			if isinstance(value, dict):
+				if value['_repos']:
+					repos_list.append((key, value['_repos']))
+				if value['_dirs']:
+					dirs[key] = value['_dirs']
+		
+		# Procesar directorios primero
+		for dir_name in sorted(dirs.keys()):
+			traverse_tree(dirs[dir_name])
+		
+		# Procesar repositorios
+		for repo_name, repo_paths in sorted(repos_list):
+			id_map[repo_id[0]] = repo_paths
+			repo_id[0] += 1
+	
+	traverse_tree(tree)
+	return id_map
+
 def remove_repos(args):
-	"""Elimina repositorios por path o número"""
+	"""Elimina repositorios por número del ID o por ruta"""
 	if not args:
-		print("Error: Debes proporcionar al menos un path o número para eliminar")
-		print("Ejemplo: git_tracker.py -r 0 1\nO: git_tracker.py -r C:/path/to/repo")
+		print("Error: Debes proporcionar al menos un número o ruta para eliminar")
+		print("Ejemplo: git_tracker.py -r 0 1 2")
+		print("O: git_tracker.py -r C:/path/to/repo")
 		return
 	
 	repos = load_repos()
-	repos_list = list(repos.items())
+	id_map = get_id_to_path_mapping(repos)
 	to_remove = []
 	
 	for arg in args:
 		# Verificar si es un número
 		if arg.isdigit():
 			idx = int(arg)
-			if 0 <= idx < len(repos_list):
-				to_remove.append(repos_list[idx])
+			if idx in id_map:
+				to_remove.append(id_map[idx])
 			else:
-				print(f"Error: El índice {idx} está fuera de rango")
+				print(f"Error: El ID {idx} no existe")
 		else:
 			# Es una ruta - normalizar para comparar
 			arg_path = os.path.abspath(arg).replace("\\", "/")
-			found = False
-			for repo_path, repo_name in repos_list:
-				if repo_path == arg_path:
-					to_remove.append((repo_path, repo_name))
-					found = True
-					break
-			if not found:
+			if arg_path in repos:
+				to_remove.append(arg_path)
+			else:
 				print(f"Advertencia: No se encontró el repositorio con path: {arg_path}")
 	
 	if to_remove:
 		print("Se van a eliminar los siguientes repositorios:")
-		for repo_path, repo_name in to_remove:
+		
+		# Mostrar qué se va a eliminar
+		for repo_path in to_remove:
+			repo_name = repos.get(repo_path, "Desconocido")
 			print(f"  - {repo_name}")
 			print(f"    {repo_path}")
 		
 		# Eliminar
-		for repo_path, _ in to_remove:
-			del repos[repo_path]
+		for repo_path in to_remove:
+			if repo_path in repos:
+				del repos[repo_path]
 		
 		if save_repos(repos):
 			generate_repos_list(repos)
