@@ -7,40 +7,100 @@ from collections import defaultdict
 JSON_FILE = "gitrepos.json"
 LIST_FILE = "git-repos-list.json"
 
-def build_tree_structure(repos):
-	"""Construye una estructura de árbol organizando repos por carpeta"""
-	tree = defaultdict(list)
+def get_common_roots(repos):
+	"""Identifica las raíces comunes (primer nivel de carpetas)"""
+	roots = set()
+	for path in repos.keys():
+		parts = path.split('/')
+		if len(parts) > 1:
+			# Tomar los primeros 2 niveles (ej: c:/Hassan)
+			roots.add(f"{parts[0]}/{parts[1]}")
+		else:
+			roots.add(parts[0])
+	return sorted(roots)
+
+def build_hierarchical_tree(repos):
+	"""Construye una estructura jerárquica de árbol"""
+	tree = {}
 	
 	for path, name in repos.items():
-		# Obtener la carpeta padre
-		parent = os.path.dirname(path)
-		tree[parent].append((name, path))
+		parts = path.split('/')
+		
+		# Construir la jerarquía
+		current = tree
+		for i, part in enumerate(parts[:-1]):  # Todas excepto el último (que es el repo)
+			if part not in current:
+				current[part] = {'_repos': [], '_dirs': {}}
+			current = current[part]['_dirs']
+		
+		# Agregar el repositorio al final
+		if parts[-1] not in current:
+			current[parts[-1]] = {'_repos': [], '_dirs': {}}
+		current[parts[-1]]['_repos'].append((name, path))
 	
 	return tree
 
+def print_hierarchical_tree(tree, prefix="", is_last=True, repo_id_ref=None):
+	"""Imprime el árbol jerárquico con IDs"""
+	if repo_id_ref is None:
+		repo_id_ref = [0]  # Usar lista para poder modificar desde funciones anidadas
+	
+	items = []
+	
+	# Separar directorios y repositorios
+	dirs = {}
+	repos = []
+	
+	for key, value in tree.items():
+		if isinstance(value, dict):
+			if value['_repos']:
+				repos.append((key, value['_repos']))
+			if value['_dirs']:
+				dirs[key] = value['_dirs']
+	
+	# Imprimir directorios primero, luego repos
+	for dir_name in sorted(dirs.keys()):
+		is_last_item = (dir_name == sorted(dirs.keys())[-1] and not repos)
+		current_prefix = "└── " if is_last_item else "├── "
+		print(f"{prefix}{current_prefix}{dir_name}/")
+		
+		next_prefix = prefix + ("    " if is_last_item else "│   ")
+		print_hierarchical_tree(dirs[dir_name], next_prefix, is_last_item, repo_id_ref)
+	
+	# Imprimir repositorios
+	for repo_name, repo_paths in sorted(repos):
+		is_last_repo = (repo_name == sorted([r[0] for r in repos])[-1])
+		repo_prefix = "└── " if is_last_repo else "├── "
+		print(f"{prefix}{repo_prefix}[{repo_id_ref[0]}] 📦 {repo_name}")
+		repo_id_ref[0] += 1
+
 def generate_repos_list(repos):
 	"""Genera el archivo git-repos-list.json con IDs y estructura treeview"""
-	tree = build_tree_structure(repos)
-	sorted_dirs = sorted(tree.keys())
+	tree = build_hierarchical_tree(repos)
 	
 	repos_list = {
 		"total": len(repos),
-		"by_folder": {}
+		"structure": tree
 	}
 	
+	# Generar una lista plana con IDs
+	repos_list["by_id"] = {}
 	repo_id = 0
 	
-	for parent_dir in sorted_dirs:
-		repos_list["by_folder"][parent_dir] = []
-		repos_in_dir = sorted(tree[parent_dir])
-		
-		for name, path in repos_in_dir:
-			repos_list["by_folder"][parent_dir].append({
-				"id": repo_id,
-				"name": name,
-				"path": path
-			})
-			repo_id += 1
+	def extract_repos_with_ids(subtree):
+		nonlocal repo_id
+		for key, value in subtree.items():
+			if isinstance(value, dict):
+				for repo_name, repo_paths in value.get('_repos', []):
+					repos_list["by_id"][repo_id] = {
+						"name": repo_name,
+						"path": repo_paths
+					}
+					repo_id += 1
+				if value.get('_dirs'):
+					extract_repos_with_ids(value['_dirs'])
+	
+	extract_repos_with_ids(tree)
 	
 	try:
 		script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -51,36 +111,6 @@ def generate_repos_list(repos):
 	except Exception as e:
 		print(f"Error al generar git-repos-list.json: {e}")
 		return False
-
-def print_tree_view(repos, show_paths=False):
-	"""Imprime los repositorios en formato árbol"""
-	if not repos:
-		return
-	
-	tree = build_tree_structure(repos)
-	sorted_dirs = sorted(tree.keys())
-	repo_id = 0
-	
-	for i, parent_dir in enumerate(sorted_dirs):
-		# Mostrar carpeta padre
-		is_last_dir = (i == len(sorted_dirs) - 1)
-		dir_prefix = "└── " if is_last_dir else "├── "
-		print(f"{dir_prefix}{parent_dir}/")
-		
-		# Mostrar repos en esta carpeta
-		repos_in_dir = sorted(tree[parent_dir])
-		for j, (name, path) in enumerate(repos_in_dir):
-			is_last_repo = (j == len(repos_in_dir) - 1)
-			spacing = "    " if is_last_dir else "│   "
-			repo_prefix = "└── " if is_last_repo else "├── "
-			
-			if show_paths:
-				print(f"{spacing}{repo_prefix}[{repo_id}] 📦 {name}")
-				print(f"{spacing}     📍 {path}")
-			else:
-				print(f"{spacing}{repo_prefix}[{repo_id}] 📦 {name}")
-			
-			repo_id += 1
 
 def show_help():
 	"""Mostrar la ayuda con todos los argumentos disponibles"""
@@ -251,14 +281,15 @@ def update_repos():
 		else:
 			missing_repos.append((repo_path, repo_name))
 	
-	# Mostrar repos disponibles en formato árbol
+	# Mostrar repos disponibles en formato árbol jerárquico
 	if existing_repos:
 		print(f"\n✓ Repositorios disponibles ({len(existing_repos)}):\n")
-		print_tree_view(existing_repos)
+		tree = build_hierarchical_tree(existing_repos)
+		print_hierarchical_tree(tree)
 	
 	# Mostrar repos faltantes
 	if missing_repos:
-		print(f"⚠ Se encontraron {len(missing_repos)} repositorio(s) que ya no existen:\n")
+		print(f"\n⚠ Se encontraron {len(missing_repos)} repositorio(s) que ya no existen:\n")
 		for i, (path, name) in enumerate(missing_repos):
 			print(f"  [{i}] {name}")
 			print(f"      {path}")
