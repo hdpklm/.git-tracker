@@ -436,28 +436,64 @@ def remove_repos(args):
 	else:
 		print("[-] No se encontraron repositorios para eliminar")
 
+def find_repos(search_term=None):
+	"""Busca repositorios en la lista guardada"""
+	repos = load_repos()
+	if not repos:
+		print("No hay repositorios registrados.")
+		print("Usa 'git repos -s' para escanear y agregar repositorios")
+		return
+
+	path_to_id_map = get_path_to_id_mapping(repos)
+
+	if not search_term:
+		# Mostrar todos en formato árbol jerárquico
+		generate_repos_list(repos)
+		print("\n[+] Estructura de repositorios:\n")
+		tree = build_hierarchical_tree(repos)
+		print_hierarchical_tree(tree, external_id_map=path_to_id_map)
+	else:
+		# Buscar coincidencias
+		filtered_repos = {}
+		for path, name in repos.items():
+			if search_term.lower() in name.lower() or search_term.lower() in path.lower():
+				filtered_repos[path] = name
+		
+		if filtered_repos:
+			print(f"\n[?] Resultados para '{search_term}':\n")
+			tree = build_hierarchical_tree(filtered_repos)
+			print_hierarchical_tree(tree, external_id_map=path_to_id_map)
+		else:
+			print(f"[-] No se encontraron repositorios que coincidan con '{search_term}'")
+
 def main():
-	"""Función principal"""
+	"""Función principal para manejar la CLI"""
 	if len(sys.argv) < 2:
-		show_help()
+		# Si no hay argumentos (ej: "git repos"), mostrar todos
+		find_repos()
 		return
 	
-	command = sys.argv[1].lower()
-	args = sys.argv[2:] if len(sys.argv) > 2 else []
+	first_arg = sys.argv[1].lower()
 	
-	if command in ["-h", "--help"]:
+	if first_arg in ["-h", "--help"]:
 		show_help()
-	elif command in ["-s", "--scan"]:
-		scan_repos(args[0] if args else None)
-	elif command in ["-a", "--add"]:
-		add_repo(args[0] if args else None)
-	elif command in ["-u", "--update"]:
+		return
+
+	# Procesar subcomandos conocidos
+	if first_arg in ["-s", "--scan"]:
+		scan_path = sys.argv[2] if len(sys.argv) > 2 else None
+		scan_repos(scan_path)
+	elif first_arg in ["-a", "--add"]:
+		add_path = sys.argv[2] if len(sys.argv) > 2 else None
+		add_repo(add_path)
+	elif first_arg in ["-u", "--update"]:
 		update_repos()
-	elif command in ["-r", "--remove"]:
-		remove_repos(args)
+	elif first_arg in ["-r", "--remove"]:
+		remove_repos(sys.argv[2:])
 	else:
-		print(f"Error: Comando '{command}' no reconocido")
-		print("Usa 'git_tracker.py -h' para ver la ayuda")
+		# Si no es un comando, tratar todo como término de búsqueda
+		search_term = " ".join(sys.argv[1:])
+		find_repos(search_term)
 
 if __name__ == "__main__":
 	main()

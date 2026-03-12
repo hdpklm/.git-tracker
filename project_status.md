@@ -1,6 +1,8 @@
-# Project Status - Git Tracker v1.2
+# Project Status - Git Tracker v1.3
 
 ## New Features
+- **Unified CLI**: All operations are now accessed through a single command `git repos`. Search and subcommands are handled automatically.
+- **Simplified Setup**: Unused aliases like `git tracker` have been removed.
 - **ID Consistency**: Repositories maintain their global IDs in search results, ensuring safe deletion.
 - **Windows Compatibility**: Full ASCII tree view and output (removed Unicode/Emojis) for native CMD support.
 

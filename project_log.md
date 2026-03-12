@@ -20,3 +20,8 @@
 - **Causa**: Falta de un mapa global de IDs durante el filtrado y uso persistente de caracteres no ASCII.
 - **Solución**: Se implementó una función para generar un mapa global de IDs (`path -> ID`) y se actualizó `print_hierarchical_tree` en ambos scripts para usarlo. Se eliminaron todos los caracteres Unicode (Emojis y box-drawing) reemplazándolos con ASCII puro.
 
+### 📝 Registro: [v1.3.0] - Unificación de CLI en "git repos"
+- **Problema**: El uso de dos comandos (`git tracker` y `git repos`) resultaba redundante y confuso para el usuario.
+- **Causa**: La lógica de búsqueda estaba en `find_repo.py` y la lógica de administración en `git_tracker.py`.
+- **Solución**: Se integró la lógica principal en `git_tracker.py`. Ahora `git_tracker.py` permite que el alias `git repos` (configurado en `setup.bat`) procese tanto texto de búsqueda directo como subcomandos (`-s`, `-a`, etc.). Se limpiaron los alias viejos en `setup.bat`.
+
