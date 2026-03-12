@@ -1,8 +1,10 @@
 import os
 import sys
 import json
+import subprocess
 from pathlib import Path
 from collections import defaultdict
+import datetime
 
 JSON_FILE = "gitrepos.json"
 LIST_FILE = "git-repos-list.json"
@@ -23,7 +25,8 @@ def build_hierarchical_tree(repos):
 	"""Construye una estructura jerárquica de árbol"""
 	tree = {}
 	
-	for path, name in repos.items():
+	for path, repo_data in repos.items():
+		name = repo_data.get("name", os.path.basename(path)) if isinstance(repo_data, dict) else repo_data
 		parts = path.split('/')
 		
 		# Construir la jerarquía
@@ -89,10 +92,12 @@ def print_hierarchical_tree(tree, prefix="", is_last=True, id_map=None, current_
 
 def generate_repos_list(repos):
 	"""Genera el archivo git-repos-list.json con IDs y estructura treeview"""
-	tree = build_hierarchical_tree(repos)
+	# Solo construir el árbol con repositorios no ocultos
+	visible_repos = {path: data for path, data in repos.items() if not data.get("hidden", False)}
+	tree = build_hierarchical_tree(visible_repos)
 	
 	repos_list = {
-		"total": len(repos),
+		"total": len(visible_repos),
 		"structure": tree
 	}
 	
@@ -142,45 +147,40 @@ def show_help():
 	help_text = """
 Git Tracker - Gestor de repositorios Git
 
-Uso: python git_tracker.py [COMANDO] [OPCIONES]
+Uso: git repos [COMANDO|BÚSQUEDA]
 
-COMANDOS:
-  -h, --help              Muestra esta ayuda
+COMANDOS de 'git repos':
+  (sin nada)              Muestra todos los repositorios registrados
+  [texto]                 Busca repositorios que coincidan con el texto (nombre o ruta)
   
   -s, --scan [PATH]       Escanea el disco o un PATH específico buscando repositorios
-                          (carpetas con .git/config) y los agrega al registro
-                          Si no se proporciona PATH, escanea el disco completo
-                          Ejemplo: git_tracker.py -s C:/Users/Hassan
+                          Ejemplo: git repos -s C:/Users/Hassan
   
-  -a, --add [PATH]        Agrega un repositorio a partir de la carpeta actual o del PATH
-                          Busca la carpeta .git/config en la ubicación especificada
-                          Ejemplo: git_tracker.py -a
-                          Ejemplo: git_tracker.py -a D:/projects/miproyecto
+  -a, --add [PATH]        Agrega un repositorio a partir del PATH actual o especificado
+                          Ejemplo: git repos -a D:/projects/miproyecto
   
-  -u, --update            Verifica que todos los repositorios guardados sigan existiendo
-                          Muestra una lista numerada de los repositorios que ya no existen
-                          para que puedas decidir cuáles eliminar
+  -u, --update            Verifica que los repositorios registrados sigan existiendo
   
-  -r, --remove [ARGS]     Elimina repositorios por número del ID (recomendado)
-                          Puedes pasar múltiples IDs separados por espacio
-                          Ejemplo: git_tracker.py -r 0 2 4
-                          También puedes usar paths:
-                          Ejemplo: git_tracker.py -r D:/proyecto1 C:/proyecto2
-
-ARCHIVOS GENERADOS:
-  - gitrepos.json         Archivo principal con todos los repositorios (clave-valor)
-  - git-repos-list.json   Archivo con estructura treeview e IDs para fácil referencia
+  -r, --remove [ID|PATH]  Oculta repositorios por ID o ruta (no los elimina del disco)
+                          Ejemplo: git repos -r 0 2 4
+                          
+  -g, --goto [ID|TEXTO]   Cambia el directorio de CMD al repositorio especificado
+                          Ejemplo: git repos -g 5
+                          
+  -v, --view [FLAGS]      Muestra metadata detallada de los repositorios encontrados
+                          Flags combinables:
+                            l (nombre), o (origin), p (path absoluto)
+                            b (branch actual), m (fecha ult. commit), c (fecha creacion)
+                            h (incluir ocultos), H (mostrar SOLO ocultos)
+                          Ejemplo: git repos server -v lomp
 
 EJEMPLOS:
-  git_tracker.py -h
-  git_tracker.py -s
-  git_tracker.py -s C:/Users/Hassan
-  git_tracker.py -a
-  git_tracker.py -a D:/mis_proyectos
-  git_tracker.py -u
-  git_tracker.py -r 0 1 2
-  git repos                 Ver lista de repos con IDs
-  git repos binance        Buscar repos que contengan "binance"
+  git repos                     # Listar todos
+  git repos binance             # Buscar "binance"
+  git repos -s                  # Escanear discos
+  git repos -r 5                # Ocultar el ID 5
+  git repos -g 5                # Navegar al repositorio 5
+  git repos test -v lob         # Buscar "test" y ver origin y branch
 	"""
 	print(help_text)
 
@@ -192,6 +192,12 @@ def load_repos():
 		if os.path.exists(file_path):
 			with open(file_path, 'r') as f:
 				repos = json.load(f)
+				# Convertir formato antiguo (str) al nuevo (dict) de forma retrocompatible
+				for path, value in list(repos.items()): # Use list() to allow modification during iteration
+					if isinstance(value, str):
+						repos[path] = {"name": value, "hidden": False}
+					elif isinstance(value, dict) and "hidden" not in value:
+						value["hidden"] = False
 				# Normalizar todos los paths a usar "/"
 				return {k.replace("\\", "/"): v for k, v in repos.items()}
 	except Exception as e:
@@ -273,7 +279,7 @@ def scan_repos(start_path=None):
 					# Normalizar path con "/"
 					normalized_root = root.replace("\\", "/")
 					if normalized_root not in repos:
-						repos[normalized_root] = repo_name
+						repos[normalized_root] = {"name": repo_name, "hidden": False}
 						print(f"  [+] Encontrado: {repo_name} ({normalized_root})")
 						found_count += 1
 					# Evitar descender más en .git
@@ -309,7 +315,7 @@ def add_repo(repo_path=None):
 		print(f"⚠ El repositorio ya está registrado: {repo_name}")
 		return
 	
-	repos[normalized_path] = repo_name
+	repos[normalized_path] = {"name": repo_name, "hidden": False}
 	if save_repos(repos):
 		generate_repos_list(repos)
 		print(f"✓ Repositorio agregado: {repo_name}")
@@ -324,11 +330,11 @@ def update_repos():
 	existing_repos = {}
 	
 	print("Verificando repositorios...")
-	for repo_path, repo_name in repos.items():
+	for repo_path, repo_data in repos.items():
 		if os.path.exists(repo_path) and is_git_repo(repo_path):
-			existing_repos[repo_path] = repo_name
+			existing_repos[repo_path] = repo_data
 		else:
-			missing_repos.append((repo_path, repo_name))
+			missing_repos.append((repo_path, repo_data.get("name", os.path.basename(repo_path))))
 	
 	# Mostrar repos disponibles en formato árbol jerárquico
 	if existing_repos:
@@ -352,7 +358,8 @@ def update_repos():
 		print(f"\n[+] {len(existing_repos)} repositorio(s) guardado(s)")
 
 def get_id_to_path_mapping(repos):
-	"""Crea un mapa consistente de ID -> ruta basado en el árbol jerárquico"""
+	"""Crea un mapa consistente de ID -> ruta basado en el árbol jerárquico global"""
+	# Generar IDs para TODOS los repos (incluyendo ocultos) para mantener IDs estables globales
 	tree = build_hierarchical_tree(repos)
 	id_map = {}
 	repo_id = [0]  # Usar lista para poder modificar en función anidada
@@ -382,59 +389,263 @@ def get_id_to_path_mapping(repos):
 	return id_map
 
 def get_path_to_id_mapping(repos):
-	"""Crea un mapa inverso consistente de ruta -> ID"""
+	"""Crea un mapa inverso consistente de ruta -> ID para repositorios NO ocultos"""
 	id_to_path = get_id_to_path_mapping(repos)
 	return {path: id for id, path in id_to_path.items()}
 
-def remove_repos(args):
-	"""Elimina repositorios por número del ID o por ruta"""
+def hide_repos(args):
+	"""Oculta repositorios por ID o ruta (en lugar de borrarlos)"""
 	if not args:
-		print("Error: Debes proporcionar al menos un número o ruta para eliminar")
-		print("Ejemplo: git_tracker.py -r 0 1 2")
-		print("O: git_tracker.py -r C:/path/to/repo")
+		print("Error: Debes proporcionar al menos un número o ruta para ocultar")
+		print("Ejemplo: git repos -r 0 1 2")
+		print("O: git repos -r C:/path/to/repo")
 		return
-	
+
 	repos = load_repos()
-	id_map = get_id_to_path_mapping(repos)
-	to_remove_paths = []
-	
+	if not repos:
+		print("No hay repositorios para ocultar")
+		return
+
+	path_to_id_map = get_path_to_id_mapping(repos)
+	id_to_path_map = get_id_to_path_mapping(repos)
+	to_hide_paths = []
+
 	for arg in args:
-		# Verificar si es un número
+		# Si es un número (ID)
 		if arg.isdigit():
-			idx = int(arg)
-			if idx in id_map:
-				to_remove_paths.append(id_map[idx])
+			repo_id = int(arg)
+			if repo_id in id_to_path_map:
+				to_hide_paths.append(id_to_path_map[repo_id])
 			else:
-				print(f"Error: El ID {idx} no existe")
+				print(f"[-] ID {repo_id} no encontrado (solo IDs de repositorios visibles)")
+		# Si es una ruta
 		else:
-			# Es una ruta - normalizar para comparar
-			arg_path = os.path.abspath(arg).replace("\\", "/")
-			if arg_path in repos:
-				to_remove_paths.append(arg_path)
+			clean_path = os.path.abspath(arg).replace('\\', '/')
+			if clean_path in repos:
+				to_hide_paths.append(clean_path)
 			else:
-				print(f"[!] Advertencia: No se encontró el repositorio con path: {arg_path}")
-	
-	if to_remove_paths:
-		print("Se van a eliminar los siguientes repositorios:")
-		
-		# Mostrar qué se va a eliminar
-		for repo_path in to_remove_paths:
-			repo_name = repos.get(repo_path, "Desconocido")
-			print(f"  - {repo_name}")
-			print(f"    {repo_path}")
-		
-		# Eliminar
-		for repo_path in to_remove_paths:
-			if repo_path in repos:
-				del repos[repo_path]
+				print(f"[-] Ruta '{arg}' no encontrada en los repositorios registrados")
+
+	if to_hide_paths:
+		for path in to_hide_paths:
+			repo_data = repos.get(path, {})
+			repo_name = repo_data.get("name", os.path.basename(path))
+			repos[path]["hidden"] = True
+			print(f"  - Ocultando: {repo_name} ({path})")
 		
 		if save_repos(repos):
 			generate_repos_list(repos)
-			print(f"\n[+] Se eliminaron {len(to_remove_paths)} repositorio(s)")
+			print(f"\n[+] Se ocultaron {len(to_hide_paths)} repositorio(s)")
 		else:
 			print("[-] Error al guardar cambios")
 	else:
-		print("[-] No se encontraron repositorios para eliminar")
+		print("[-] Ningún repositorio válido para ocultar")
+
+def goto_repo(args):
+	"""Escribe la ruta del repositorio en .cd_path para que el wrapper haga cd"""
+	if not args:
+		print("Error: Debes proporcionar un número o nombre para ir")
+		print("Ejemplo: git repos -g 5")
+		return
+
+	repos = load_repos()
+	if not repos:
+		print("No hay repositorios registrados.")
+		return
+
+	target_path = None
+	arg = args[0]
+
+	# Si es un número (ID)
+	if arg.isdigit():
+		repo_id = int(arg)
+		id_to_path_map = get_id_to_path_mapping(repos)
+		if repo_id in id_to_path_map:
+			target_path = id_to_path_map[repo_id]
+		else:
+			print(f"[-] ID {repo_id} no encontrado (solo IDs de repositorios visibles)")
+			return
+	else:
+		# Buscar por texto si no es ID
+		search_term = arg.lower()
+		matches = []
+		for path, value in repos.items():
+			name = value.get("name", "")
+			hidden = value.get("hidden", False)
+			if not hidden and (search_term in name.lower() or search_term in path.lower()):
+				matches.append(path)
+		
+		if not matches:
+			print(f"[-] No se encontró ningún repositorio visible coincidente con '{arg}'")
+			return
+		elif len(matches) == 1:
+			target_path = matches[0]
+		else:
+			print(f"[-] Hay múltiples coincidencias para '{arg}'. Usa el ID exacto con 'git repos -g [ID]'.")
+			return
+
+	if target_path:
+		script_dir = os.path.dirname(os.path.abspath(__file__))
+		cd_file_path = os.path.join(script_dir, ".cd_path")
+		try:
+			# Normalizar a barras invertidas para CMD en Windows
+			cmd_path = target_path.replace('/', '\\')
+			with open(cd_file_path, "w") as f:
+				f.write(cmd_path)
+			print(f"[+] Cambiando directorio a: {cmd_path}")
+		except Exception as e:
+			print(f"[-] Error al preparar el cambio de directorio: {e}")
+
+def fetch_git_details(repo_path, flags):
+	"""Obtiene los detalles del repositorio usando comandos de git según las flags (lobmchH)"""
+	details = {}
+	original_dir = os.getcwd()
+	
+	try:
+		os.chdir(repo_path)
+		
+		if 'o' in flags: # Origin
+			try:
+				result = subprocess.run(['git', 'remote', 'get-url', 'origin'], capture_output=True, text=True, check=True)
+				details['o'] = result.stdout.strip()
+			except subprocess.CalledProcessError:
+				details['o'] = "Sin origin"
+				
+		if 'p' in flags: # Path
+			details['p'] = os.path.abspath(repo_path)
+			
+		if 'b' in flags: # Branch
+			try:
+				result = subprocess.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], capture_output=True, text=True, check=True)
+				details['b'] = result.stdout.strip()
+			except subprocess.CalledProcessError:
+				details['b'] = "Sin branch"
+				
+		if 'm' in flags: # Last modify
+			try:
+				result = subprocess.run(['git', 'log', '-1', '--format=%cd', '--date=short'], capture_output=True, text=True, check=True)
+				details['m'] = result.stdout.strip()
+			except subprocess.CalledProcessError:
+				details['m'] = "Sin commits"
+
+		if 'c' in flags: # Create at (first commit)
+			try:
+				# Obtenemos el commit root (el primero)
+				result = subprocess.run(['git', 'log', '--reverse', '--format=%cd', '--date=short'], capture_output=True, text=True, check=True)
+				primer_commit = result.stdout.strip().split('\n')[0]
+				details['c'] = primer_commit if primer_commit else "Sin commits"
+			except subprocess.CalledProcessError:
+				details['c'] = "Sin commits"
+				
+	except Exception as e:
+		pass
+	finally:
+		os.chdir(original_dir)
+		
+	return details
+
+def view_repo(args):
+	"""Muestra detalles de los repositorios según los argumentos o flags."""
+	if not args:
+		print("Error: Faltan argumentos para -v")
+		return
+
+	flags = ""
+	search_term = ""
+	
+	# Usualmente: git repos [search_term] -v lomp
+	# Pero si args tiene '-v' ya se ha filtrado en main, recibimos lo demás
+	# Analizamos qué es flag y qué es término de búsqueda
+	for arg in args:
+		if set(arg).issubset(set("lobmpchH")):
+			flags = arg
+		else:
+			search_term = arg
+
+	repos = load_repos()
+	if not repos:
+		print("No hay repositorios registrados.")
+		return
+
+	id_to_path_map = get_id_to_path_mapping(repos)
+	path_to_id_map = get_path_to_id_mapping(repos)
+	
+	# Determinar qué repos mostrar
+	repos_to_show = {}
+	
+	if not search_term:
+		repos_to_show = repos
+	elif search_term.isdigit() and int(search_term) in id_to_path_map:
+		path = id_to_path_map[int(search_term)]
+		repos_to_show = {path: repos[path]}
+	else:
+		# Búsqueda por texto
+		st_lower = search_term.lower()
+		for path, value in repos.items():
+			name = value.get("name", "")
+			if st_lower in name.lower() or st_lower in path.lower():
+				repos_to_show[path] = value
+				
+	if not repos_to_show:
+		print(f"[-] No se encontró ningún repositorio coincidente con '{search_term}'")
+		return
+
+	# Filtrar ocultos según flags 'h' o 'H'
+	include_hidden = 'h' in flags
+	only_hidden = 'H' in flags
+	
+	filtered_repos = {}
+	for path, value in repos_to_show.items():
+		is_hidden = value.get("hidden", False)
+		if only_hidden and not is_hidden:
+			continue
+		if not only_hidden and not include_hidden and is_hidden:
+			continue
+		filtered_repos[path] = value
+
+	if not filtered_repos:
+		print("[-] No hay repositorios que mostrar con los filtros actuales.")
+		return
+
+	# Diccionario para mapear flags a nombres legibles
+	flag_names = {'o': 'Origin', 'p': 'Path', 'b': 'Branch', 'm': 'Last Modify', 'c': 'Created At'}
+	# Flags solicitadas para recolección (ignoramos l, h, H para git_details)
+	fetch_flags = [f for f in flags if f in flag_names]
+	
+	single_flag = len(fetch_flags) == 1
+	
+	print("\nDetalles de repositorios:")
+	for path in sorted(filtered_repos.keys()):
+		value = filtered_repos[path]
+		repo_name = value.get("name", os.path.basename(path))
+		repo_id = path_to_id_map.get(path, "?")
+		is_hidden = value.get("hidden", False)
+		
+		# Prefijo de ID y estrella si está oculto
+		prefix = f"[{repo_id}] "
+		if is_hidden:
+			prefix += "* "
+			
+		display_name = f"{prefix}{repo_name}"
+		
+		# Si solo es 'l' o ninguna de data extra, solo listamos
+		if not fetch_flags:
+			print(f"{display_name}")
+			continue
+			
+		details = fetch_git_details(path, fetch_flags)
+		
+		if single_flag:
+			# Mostrar en línea
+			flag = fetch_flags[0]
+			detail_val = details.get(flag, 'N/A')
+			print(f"{display_name} {{{detail_val}}}")
+		else:
+			# Mostrar listado debajo
+			print(display_name)
+			for flag in fetch_flags:
+				print(f"  |-- {flag_names[flag]}: {details.get(flag, 'N/A')}")
+	print() # Empty line at the end
 
 def find_repos(search_term=None):
 	"""Busca repositorios en la lista guardada"""
@@ -447,17 +658,27 @@ def find_repos(search_term=None):
 	path_to_id_map = get_path_to_id_mapping(repos)
 
 	if not search_term:
+		# Preparar diccionarios filtrando los ocultos
+		visible_repos = {p: v["name"] for p, v in repos.items() if not v.get("hidden", False)}
+		
+		if not visible_repos:
+			print("[-] No hay repositorios visibles.")
+			return
+			
 		# Mostrar todos en formato árbol jerárquico
-		generate_repos_list(repos)
+		generate_repos_list(repos) # Generar lista con todos para mantener consistencia de ID
 		print("\n[+] Estructura de repositorios:\n")
-		tree = build_hierarchical_tree(repos)
+		tree = build_hierarchical_tree(visible_repos)
 		print_hierarchical_tree(tree, external_id_map=path_to_id_map)
 	else:
-		# Buscar coincidencias
+		# Buscar coincidencias solo en los visibles
 		filtered_repos = {}
-		for path, name in repos.items():
-			if search_term.lower() in name.lower() or search_term.lower() in path.lower():
+		for path, value in repos.items():
+			name = value.get("name", "")
+			hidden = value.get("hidden", False)
+			if not hidden and (search_term.lower() in name.lower() or search_term.lower() in path.lower()):
 				filtered_repos[path] = name
+
 		
 		if filtered_repos:
 			print(f"\n[?] Resultados para '{search_term}':\n")
@@ -488,12 +709,28 @@ def main():
 		add_repo(add_path)
 	elif first_arg in ["-u", "--update"]:
 		update_repos()
-	elif first_arg in ["-r", "--remove"]:
-		remove_repos(sys.argv[2:])
+	elif first_arg in ["-r", "--remove", "--hide"]:
+		hide_repos(sys.argv[2:])
+	elif first_arg in ["-g", "--goto"]:
+		goto_repo(sys.argv[2:])
+	elif first_arg in ["-v", "--view"]:
+		view_repo(sys.argv[2:])
 	else:
-		# Si no es un comando, tratar todo como término de búsqueda
-		search_term = " ".join(sys.argv[1:])
-		find_repos(search_term)
+		# Si no es un comando directo, verificamos si contiene -v (ej: git repos server -v lomp)
+		if "-v" in sys.argv or "--view" in sys.argv:
+			try:
+				v_idx = sys.argv.index("-v") if "-v" in sys.argv else sys.argv.index("--view")
+				# Extraer los argumentos antes del -v (search term) y después del -v (flags)
+				search_args = sys.argv[1:v_idx]
+				flags_args = sys.argv[v_idx+1:]
+				# Concatenar para view_repo (donde el primer argumento es asumido search_term si no es una flag de letras puras)
+				view_repo(search_args + flags_args)
+			except ValueError:
+				pass
+		else:
+			# Si no es un comando, tratar todo como término de búsqueda
+			search_term = " ".join(sys.argv[1:])
+			find_repos(search_term)
 
 if __name__ == "__main__":
 	main()

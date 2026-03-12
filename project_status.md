@@ -1,12 +1,16 @@
-# Project Status - Git Tracker v1.3
+# Project Status - Git Tracker v1.4
 
 ## New Features
+- **Advanced View (`-v`)**: Added support for fetching and displaying repository metadata like origin, branch, paths, and dates using flags (`lobmpchH`).
+- **Goto Directory (`-g`)**: Replaced `git repos` alias with a batch wrapper (`git-repos.bat`) that allows changing the CMD working directory to any repository via ID or name.
+- **Hide instead of Remove (`-r`)**: Migrated the database schema to support a `hidden` flag. Deleted repos are now hidden instead of purged, keeping their Global IDs intact.
+- **Pre-Commit Hook**: Silenced the global Git pre-commit hook to silently register repos without polluting the console.
 - **Unified CLI**: All operations are now accessed through a single command `git repos`. Search and subcommands are handled automatically.
 - **Simplified Setup**: Unused aliases like `git tracker` have been removed.
 - **ID Consistency**: Repositories maintain their global IDs in search results, ensuring safe deletion.
 - **Windows Compatibility**: Full ASCII tree view and output (removed Unicode/Emojis) for native CMD support.
 
-## EXCLUDE_DIRS
+## Project Structure
 List of directories ignored during scanning to improve performance:
 `Windows`, `Program Files`, `Program Files (x86)`, `AppData`, `node_modules`, `.cache`, `System Volume Information`, `$RECYCLE.BIN`, `msys64`, `Library`, `Local Settings`, `Temporary Internet Files`, `Application Data`, `.gemini`
 

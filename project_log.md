@@ -25,3 +25,12 @@
 - **Causa**: La lógica de búsqueda estaba en `find_repo.py` y la lógica de administración en `git_tracker.py`.
 - **Solución**: Se integró la lógica principal en `git_tracker.py`. Ahora `git_tracker.py` permite que el alias `git repos` (configurado en `setup.bat`) procese tanto texto de búsqueda directo como subcomandos (`-s`, `-a`, etc.). Se limpiaron los alias viejos en `setup.bat`.
 
+### 📝 Registro: [v1.4.0] - Funcionalidades CLI Avanzadas (-v, -r, -g)
+- **Problema**: El gestor carecía de utilidades adicionales como metadatos de Git, navegación rápida y recuperación de repositorios eliminados accidentalmente (porque `-r` los borraba permanentemente).
+- **Causa**: Se requería expandir las opciones CLI de `git_tracker.py` y actualizar el alias de `setup.bat` para soportar manipulación de entorno (`cd`).
+- **Solución**: 
+  - Se modificó la estructura de `gitrepos.json` añadiendo un flag `hidden` en vez de cadenas (str) y `remove (-r)` ahora alterna este flag. 
+  - Se implementó `view (-v)` con flags combinadas (ej: `lomp`) ejecutando llamadas a procesos de `git.exe` en segundo plano.
+  - Se reemplazó el alias principal en `setup.bat` por un wrapper (`git-repos.bat`) que permite escribir un archivo temporal `.cd_path` en Python y que el batch procese el `cd /d` hacia la ruta destino, permitiendo el funcionamiento real del parámetro `goto (-g)`.
+  - El hook pre-commit se silenció para no entorpecer la salida del terminal en confirmaciones repetitivas.
+
