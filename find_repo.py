@@ -51,19 +51,20 @@ def print_hierarchical_tree(tree, prefix="", is_last=True, id_map=None, current_
 		print_hierarchical_tree(dirs[dir_name], next_prefix, is_last_item, id_map, current_id)
 	
 	# Imprimir repositorios
-	for repo_name, repo_paths in sorted(repos):
-		is_last_repo = (repo_name == sorted([r[0] for r in repos])[-1])
-		repo_prefix = "└── " if is_last_repo else "├── "
-		
-		# Aquí es donde asignamos el ID
-		current_id_val = current_id[0] if isinstance(current_id, list) else current_id
-		print(f"{prefix}{repo_prefix}[{current_id_val}] 📦 {repo_name}")
-		id_map[current_id_val] = repo_paths
-		
-		if isinstance(current_id, list):
-			current_id[0] += 1
-		else:
-			current_id += 1
+	for dir_name, repo_paths_list in sorted(repos):
+		# Cada elemento en repo_paths_list es una tupla (repo_name, repo_path)
+		for i, (repo_name, repo_path) in enumerate(sorted(repo_paths_list)):
+			is_last_repo = (i == len(sorted(repo_paths_list)) - 1 and dir_name == sorted([r[0] for r in repos])[-1])
+			repo_prefix = "└── " if is_last_repo else "├── "
+			
+			current_id_val = current_id[0] if isinstance(current_id, list) else current_id
+			print(f"{prefix}{repo_prefix}[{current_id_val}] 📦 {repo_name}")
+			id_map[current_id_val] = repo_path
+			
+			if isinstance(current_id, list):
+				current_id[0] += 1
+			else:
+				current_id += 1
 
 def generate_repos_list(repos):
 	"""Genera el archivo git-repos-list.json con IDs y estructura treeview"""
@@ -80,16 +81,28 @@ def generate_repos_list(repos):
 	
 	def extract_repos_with_ids(subtree):
 		nonlocal repo_id
+		dirs = {}
+		repos_items = []
+		
 		for key, value in subtree.items():
 			if isinstance(value, dict):
-				for repo_name, repo_paths in value.get('_repos', []):
-					repos_list["by_id"][repo_id] = {
-						"name": repo_name,
-						"path": repo_paths
-					}
-					repo_id += 1
-				if value.get('_dirs'):
-					extract_repos_with_ids(value['_dirs'])
+				if value['_repos']:
+					repos_items.append((key, value['_repos']))
+				if value['_dirs']:
+					dirs[key] = value['_dirs']
+		
+		# Procesar directorios primero
+		for dir_name in sorted(dirs.keys()):
+			extract_repos_with_ids(dirs[dir_name])
+		
+		# Procesar repositorios
+		for dir_name, repo_paths_list in sorted(repos_items):
+			for repo_name, repo_path in repo_paths_list:
+				repos_list["by_id"][repo_id] = {
+					"name": repo_name,
+					"path": repo_path
+				}
+				repo_id += 1
 	
 	extract_repos_with_ids(tree)
 	

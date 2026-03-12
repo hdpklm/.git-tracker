@@ -67,19 +67,20 @@ def print_hierarchical_tree(tree, prefix="", is_last=True, id_map=None, current_
 		print_hierarchical_tree(dirs[dir_name], next_prefix, is_last_item, id_map, current_id)
 	
 	# Imprimir repositorios
-	for repo_name, repo_paths in sorted(repos):
-		is_last_repo = (repo_name == sorted([r[0] for r in repos])[-1])
-		repo_prefix = "└── " if is_last_repo else "├── "
-		
-		# Aquí es donde asignamos el ID
-		current_id_val = current_id[0] if isinstance(current_id, list) else current_id
-		print(f"{prefix}{repo_prefix}[{current_id_val}] 📦 {repo_name}")
-		id_map[current_id_val] = repo_paths
-		
-		if isinstance(current_id, list):
-			current_id[0] += 1
-		else:
-			current_id += 1
+	for dir_name, repo_paths_list in sorted(repos):
+		# Cada elemento en repo_paths_list es una tupla (repo_name, repo_path)
+		for i, (repo_name, repo_path) in enumerate(sorted(repo_paths_list)):
+			is_last_repo = (i == len(sorted(repo_paths_list)) - 1 and dir_name == sorted([r[0] for r in repos])[-1])
+			repo_prefix = "└── " if is_last_repo else "├── "
+			
+			current_id_val = current_id[0] if isinstance(current_id, list) else current_id
+			print(f"{prefix}{repo_prefix}[{current_id_val}] 📦 {repo_name}")
+			id_map[current_id_val] = repo_path
+			
+			if isinstance(current_id, list):
+				current_id[0] += 1
+			else:
+				current_id += 1
 
 def generate_repos_list(repos):
 	"""Genera el archivo git-repos-list.json con IDs y estructura treeview"""
@@ -96,16 +97,28 @@ def generate_repos_list(repos):
 	
 	def extract_repos_with_ids(subtree):
 		nonlocal repo_id
+		dirs = {}
+		repos_items = []
+		
 		for key, value in subtree.items():
 			if isinstance(value, dict):
-				for repo_name, repo_paths in value.get('_repos', []):
-					repos_list["by_id"][repo_id] = {
-						"name": repo_name,
-						"path": repo_paths
-					}
-					repo_id += 1
-				if value.get('_dirs'):
-					extract_repos_with_ids(value['_dirs'])
+				if value['_repos']:
+					repos_items.append((key, value['_repos']))
+				if value['_dirs']:
+					dirs[key] = value['_dirs']
+		
+		# Procesar directorios primero
+		for dir_name in sorted(dirs.keys()):
+			extract_repos_with_ids(dirs[dir_name])
+		
+		# Procesar repositorios
+		for dir_name, repo_paths_list in sorted(repos_items):
+			for repo_name, repo_path in repo_paths_list:
+				repos_list["by_id"][repo_id] = {
+					"name": repo_name,
+					"path": repo_path
+				}
+				repo_id += 1
 	
 	extract_repos_with_ids(tree)
 	
@@ -331,9 +344,10 @@ def get_id_to_path_mapping(repos):
 			traverse_tree(dirs[dir_name])
 		
 		# Procesar repositorios
-		for repo_name, repo_paths in sorted(repos_list):
-			id_map[repo_id[0]] = repo_paths
-			repo_id[0] += 1
+		for dir_name, repo_paths_list in sorted(repos_list):
+			for repo_name, repo_path in repo_paths_list:
+				id_map[repo_id[0]] = repo_path
+				repo_id[0] += 1
 	
 	traverse_tree(tree)
 	return id_map
@@ -348,41 +362,41 @@ def remove_repos(args):
 	
 	repos = load_repos()
 	id_map = get_id_to_path_mapping(repos)
-	to_remove = []
+	to_remove_paths = []
 	
 	for arg in args:
 		# Verificar si es un número
 		if arg.isdigit():
 			idx = int(arg)
 			if idx in id_map:
-				to_remove.append(id_map[idx])
+				to_remove_paths.append(id_map[idx])
 			else:
 				print(f"Error: El ID {idx} no existe")
 		else:
 			# Es una ruta - normalizar para comparar
 			arg_path = os.path.abspath(arg).replace("\\", "/")
 			if arg_path in repos:
-				to_remove.append(arg_path)
+				to_remove_paths.append(arg_path)
 			else:
 				print(f"Advertencia: No se encontró el repositorio con path: {arg_path}")
 	
-	if to_remove:
+	if to_remove_paths:
 		print("Se van a eliminar los siguientes repositorios:")
 		
 		# Mostrar qué se va a eliminar
-		for repo_path in to_remove:
+		for repo_path in to_remove_paths:
 			repo_name = repos.get(repo_path, "Desconocido")
 			print(f"  - {repo_name}")
 			print(f"    {repo_path}")
 		
 		# Eliminar
-		for repo_path in to_remove:
+		for repo_path in to_remove_paths:
 			if repo_path in repos:
 				del repos[repo_path]
 		
 		if save_repos(repos):
 			generate_repos_list(repos)
-			print(f"\n✓ Se eliminaron {len(to_remove)} repositorio(s)")
+			print(f"\n✓ Se eliminaron {len(to_remove_paths)} repositorio(s)")
 		else:
 			print("✗ Error al guardar cambios")
 	else:
