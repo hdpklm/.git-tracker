@@ -210,6 +210,12 @@ def is_git_repo(path):
 	git_config = os.path.join(path, ".git", "config")
 	return os.path.exists(git_config)
 
+EXCLUDE_DIRS = {
+	"Windows", "Program Files", "Program Files (x86)", "AppData", "node_modules", 
+	".cache", "System Volume Information", "$RECYCLE.BIN", "msys64", "Library",
+	"Local Settings", "Temporary Internet Files", "Application Data", ".gemini"
+}
+
 def scan_repos(start_path=None):
 	"""Escanea un disco o carpeta buscando repositorios Git"""
 	if start_path is None:
@@ -217,44 +223,62 @@ def scan_repos(start_path=None):
 		if sys.platform == "win32":
 			drives = []
 			for i in range(ord('A'), ord('Z') + 1):
-				drive = chr(i) + ":"
+				drive = chr(i) + ":/"
 				if os.path.exists(drive):
 					drives.append(drive)
 		else:
 			drives = ["/"]
 	else:
-		start_path = os.path.abspath(start_path)
+		start_path = os.path.abspath(start_path).replace("\\", "/")
 		if not os.path.exists(start_path):
 			print(f"Error: El path '{start_path}' no existe")
 			return
 		drives = [start_path]
 
 	repos = load_repos()
+	# Limpiar posibles entradas erróneas como "C:"
+	if "C:" in repos:
+		del repos["C:"]
+	
 	found_count = 0
 	
-	print("Escaneando repositorios...")
+	print("Escaneando repositorios (esto puede tardar, la primera vez)...")
 	
 	for drive in drives:
 		print(f"Buscando en {drive}...")
-		for root, dirs, files in os.walk(drive):
-			# Saltar carpetas del sistema y muy profundas
+		# Usamos os.walk con handling de errores para evitar permisos denegados
+		for root, dirs, files in os.walk(drive, topdown=True, onerror=None):
+			# Filtrar carpetas que no queremos escanear
+			dirs[:] = [d for d in dirs if d not in EXCLUDE_DIRS]
+			
 			if ".git" in dirs:
+				# Si root es una raíz de disco (ej: C:/), el basename es vacío
+				repo_name = os.path.basename(root)
+				if not repo_name:
+					# Si es una raíz de disco, el nombre del repo no debería ser ""
+					# A menos que el .git esté literalmente en C:/.git
+					if is_git_repo(root):
+						repo_name = f"Drive_{root[0]}"
+					else:
+						# Si no es un repo real en la raíz, lo ignoramos
+						dirs.remove(".git")
+						continue
+
 				if is_git_repo(root):
-					repo_name = os.path.basename(root)
 					# Normalizar path con "/"
 					normalized_root = root.replace("\\", "/")
 					if normalized_root not in repos:
 						repos[normalized_root] = repo_name
-						print(f"  ✓ Encontrado: {repo_name} ({normalized_root})")
+						print(f"  [+] Encontrado: {repo_name} ({normalized_root})")
 						found_count += 1
 					# Evitar descender más en .git
 					dirs.remove(".git")
 
 	if save_repos(repos):
 		generate_repos_list(repos)
-		print(f"\n✓ Se encontraron y guardaron {found_count} nuevo(s) repositorio(s)")
+		print(f"\n[+] Se encontraron y guardaron {found_count} nuevo(s) repositorio(s)")
 	else:
-		print("✗ Error al guardar repositorios")
+		print("[-] Error al guardar repositorios")
 
 def add_repo(repo_path=None):
 	"""Agrega un repositorio a la lista"""
@@ -303,24 +327,24 @@ def update_repos():
 	
 	# Mostrar repos disponibles en formato árbol jerárquico
 	if existing_repos:
-		print(f"\n✓ Repositorios disponibles ({len(existing_repos)}):\n")
+		print(f"\n[+] Repositorios disponibles ({len(existing_repos)}):\n")
 		tree = build_hierarchical_tree(existing_repos)
 		print_hierarchical_tree(tree)
 	
 	# Mostrar repos faltantes
 	if missing_repos:
-		print(f"\n⚠ Se encontraron {len(missing_repos)} repositorio(s) que ya no existen:\n")
+		print(f"\n[!] Se encontraron {len(missing_repos)} repositorio(s) que ya no existen:\n")
 		for i, (path, name) in enumerate(missing_repos):
 			print(f"  [{i}] {name}")
 			print(f"      {path}")
 		print(f"\nPara eliminarlos usa: git_tracker.py -r <números>")
 	else:
-		print("\n✓ Todos los repositorios están disponibles")
+		print("\n[+] Todos los repositorios están disponibles")
 	
 	# Guardar solo los repositorios existentes y generar lista
 	if save_repos(existing_repos):
 		generate_repos_list(existing_repos)
-		print(f"\n✓ {len(existing_repos)} repositorio(s) guardado(s)")
+		print(f"\n[+] {len(existing_repos)} repositorio(s) guardado(s)")
 
 def get_id_to_path_mapping(repos):
 	"""Crea un mapa consistente de ID -> ruta basado en el árbol jerárquico"""
@@ -378,7 +402,7 @@ def remove_repos(args):
 			if arg_path in repos:
 				to_remove_paths.append(arg_path)
 			else:
-				print(f"Advertencia: No se encontró el repositorio con path: {arg_path}")
+				print(f"[!] Advertencia: No se encontró el repositorio con path: {arg_path}")
 	
 	if to_remove_paths:
 		print("Se van a eliminar los siguientes repositorios:")
@@ -396,11 +420,11 @@ def remove_repos(args):
 		
 		if save_repos(repos):
 			generate_repos_list(repos)
-			print(f"\n✓ Se eliminaron {len(to_remove_paths)} repositorio(s)")
+			print(f"\n[+] Se eliminaron {len(to_remove_paths)} repositorio(s)")
 		else:
-			print("✗ Error al guardar cambios")
+			print("[-] Error al guardar cambios")
 	else:
-		print("✗ No se encontraron repositorios para eliminar")
+		print("[-] No se encontraron repositorios para eliminar")
 
 def main():
 	"""Función principal"""
