@@ -1,4 +1,8 @@
-# Project Status - Git Tracker
+# Project Status - Git Tracker v1.2
+
+## New Features
+- **ID Consistency**: Repositories maintain their global IDs in search results, ensuring safe deletion.
+- **Windows Compatibility**: Full ASCII tree view and output (removed Unicode/Emojis) for native CMD support.
 
 ## EXCLUDE_DIRS
 List of directories ignored during scanning to improve performance:

@@ -40,9 +40,9 @@ def build_hierarchical_tree(repos):
 	
 	return tree
 
-def print_hierarchical_tree(tree, prefix="", is_last=True, id_map=None, current_id=None):
+def print_hierarchical_tree(tree, prefix="", is_last=True, id_map=None, current_id=None, external_id_map=None):
 	"""Imprime el árbol jerárquico con IDs consistentes"""
-	if id_map is None:
+	if id_map is None and external_id_map is None:
 		id_map = {}
 		current_id = [0]
 	
@@ -64,7 +64,7 @@ def print_hierarchical_tree(tree, prefix="", is_last=True, id_map=None, current_
 		print(f"{prefix}{current_prefix}{dir_name}/")
 		
 		next_prefix = prefix + ("    " if is_last_item else "│   ")
-		print_hierarchical_tree(dirs[dir_name], next_prefix, is_last_item, id_map, current_id)
+		print_hierarchical_tree(dirs[dir_name], next_prefix, is_last_item, id_map, current_id, external_id_map)
 	
 	# Imprimir repositorios
 	for dir_name, repo_paths_list in sorted(repos):
@@ -73,14 +73,19 @@ def print_hierarchical_tree(tree, prefix="", is_last=True, id_map=None, current_
 			is_last_repo = (i == len(sorted(repo_paths_list)) - 1 and dir_name == sorted([r[0] for r in repos])[-1])
 			repo_prefix = "└── " if is_last_repo else "├── "
 			
-			current_id_val = current_id[0] if isinstance(current_id, list) else current_id
-			print(f"{prefix}{repo_prefix}[{current_id_val}] 📦 {repo_name}")
-			id_map[current_id_val] = repo_path
-			
-			if isinstance(current_id, list):
-				current_id[0] += 1
+			if external_id_map:
+				current_id_val = external_id_map.get(repo_path, "?")
 			else:
-				current_id += 1
+				current_id_val = current_id[0] if isinstance(current_id, list) else current_id
+				if id_map is not None:
+					id_map[current_id_val] = repo_path
+				
+				if isinstance(current_id, list):
+					current_id[0] += 1
+				else:
+					current_id += 1
+			
+			print(f"{prefix}{repo_prefix}[{current_id_val}] {repo_name}")
 
 def generate_repos_list(repos):
 	"""Genera el archivo git-repos-list.json con IDs y estructura treeview"""
@@ -369,12 +374,17 @@ def get_id_to_path_mapping(repos):
 		
 		# Procesar repositorios
 		for dir_name, repo_paths_list in sorted(repos_list):
-			for repo_name, repo_path in repo_paths_list:
+			for repo_name, repo_path in sorted(repo_paths_list):
 				id_map[repo_id[0]] = repo_path
 				repo_id[0] += 1
 	
 	traverse_tree(tree)
 	return id_map
+
+def get_path_to_id_mapping(repos):
+	"""Crea un mapa inverso consistente de ruta -> ID"""
+	id_to_path = get_id_to_path_mapping(repos)
+	return {path: id for id, path in id_to_path.items()}
 
 def remove_repos(args):
 	"""Elimina repositorios por número del ID o por ruta"""
