@@ -1,6 +1,6 @@
 #!/bin/sh
-echo "POST-REBASE: =============================================="
+# Este hook se ejecuta después de rebase.
+# Registra automáticamente el repositorio actual en git-tracker de forma silenciosa.
 REPO_PATH="$(pwd)"
 SCRIPT_DIR="$(dirname "$0")/.."
-echo "Running: cd $SCRIPT_DIR && python git_tracker.py $REPO_PATH"
-cd "$SCRIPT_DIR" && python git_tracker.py "$REPO_PATH"
+cd "$SCRIPT_DIR" && python git_tracker.py repos -a "$REPO_PATH" > /dev/null 2>&1
